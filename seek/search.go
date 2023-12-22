@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -198,15 +199,18 @@ type SearchedInfo struct {
 }
 
 type SummarizedData struct {
-	Location       string `json:"location"`
-	Company        string `json:"company"`
-	AdDate         string `json:"ad_date"`
-	Salary         string `json:"salary"`
-	Role           string `json:"role"`
-	Title          string `json:"title"`
-	JobDescription string `json:"job_description"`
-	WorkType       string `json:"work_type"`
-	URL            string `json:"url"`
+	JobID          string    `json:"id" gorm:"column:id;primary_key"`
+	CompanyID      string    `json:"company_id" gorm:"column:company_id"`
+	Title          string    `json:"title" gorm:"column:title"`
+	Location       string    `json:"location"  gorm:"column:location"`
+	Company        string    `json:"company"  gorm:"column:company"`
+	ListingDate    time.Time `json:"listing_date"  gorm:"column:listing_date"`
+	Salary         string    `json:"salary"  gorm:"column:salary"`
+	Role           string    `json:"role" gorm:"column:role"`
+	JobDescription string    `json:"job_description"  gorm:"column:job_description"`
+	WorkType       string    `json:"work_type"  gorm:"column:work_type"`
+	URL            string    `json:"url"  gorm:"column:url"`
+	ExtraInfo      string    `json:"extra_info" gorm:"column:extra_info"`
 }
 
 func (sk *SeekAPI) SearchJobs(ctx context.Context, keyword string) ([]SummarizedData, error) {
@@ -233,14 +237,27 @@ func (sk *SeekAPI) SearchJobs(ctx context.Context, keyword string) ([]Summarized
 	for _, job := range res.JobInfo {
 		jobsData = append(jobsData, SummarizedData{
 			Location:       job.Location,
-			Company:        job.Companyname,
-			AdDate:         job.Listingdatedisplay,
+			JobID:          strconv.Itoa(job.ID),
+			CompanyID:      job.Advertiser.ID,
+			Company:        job.Advertiser.Description,
+			ListingDate:    job.Listingdate,
 			Salary:         job.Salary,
 			Role:           job.Roleid,
 			Title:          job.Title,
-			JobDescription: fmt.Sprintf("%s \n %s", job.Teaser, job.Bulletpoints),
-			WorkType:       job.Worktype,
-			URL:            fmt.Sprintf("https://www.seek.com.au/job/%d", job.ID),
+			JobDescription: job.Teaser,
+			ExtraInfo: func() string {
+				var info string
+				if len(job.Bulletpoints) != 0 {
+					return info
+				}
+
+				for _, points := range job.Bulletpoints {
+					info += points
+				}
+				return info
+			}(),
+			WorkType: job.Worktype,
+			URL:      fmt.Sprintf("https://www.seek.com.au/job/%d", job.ID),
 		})
 	}
 
@@ -265,10 +282,10 @@ func (sk *SeekAPI) ProcessResult(ctx context.Context, url string) (*SearchedInfo
 }
 
 func (sk *SeekAPI) SearchSlug(page int, keyword string) string {
-	query := map[string]interface{}{
-		"page":               page,
+	query := map[string]string{
+		"page":               strconv.Itoa(page),
 		"where":              "All+Australia",
-		"seekSelectAllPages": true,
+		"seekSelectAllPages": "true",
 		"locale":             "en-AU",
 		"keywords":           keyword,
 		"siteKey":            "AU-Main",
