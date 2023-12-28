@@ -34,7 +34,7 @@ func (sc seekController) SearchJob(ctx *gin.Context) {
 
 	// titles := []string{"Golang", "React", "Node", "Backend", "Frontend", "Java", "Javascript", "Kubernetes", "PHP", "Python", "RUST", "SQL", "TYPESCRIPT", "DEVOPS", "DATASIENCE", "CYBERSECURITY"}
 
-	titles := []string{"Golang"}
+	titles := []string{"Golang", "Node", "Backend"}
 
 	var jobs []seek.SummarizedData
 	for _, title := range titles {
