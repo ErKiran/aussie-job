@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
+	"sync"
 
 	repo "aussie-jobs/repositories/seek"
 	"aussie-jobs/seek"
@@ -32,18 +34,32 @@ func NewSeekController(db *gorm.DB) seekController {
 func (sc seekController) SearchJob(ctx *gin.Context) {
 	seeks := seek.NewSeek()
 
-	// titles := []string{"Golang", "React", "Node", "Backend", "Frontend", "Java", "Javascript", "Kubernetes", "PHP", "Python", "RUST", "SQL", "TYPESCRIPT", "DEVOPS", "DATASIENCE", "CYBERSECURITY"}
+	title := ctx.Query("titles")
 
-	titles := []string{"Golang", "Node", "Backend"}
+	titles := strings.Split(title, ",")
 
 	var jobs []seek.SummarizedData
+	var wg sync.WaitGroup
+	var mu sync.Mutex // Mutex to protect access to the jobs slice
+
 	for _, title := range titles {
-		job, err := seeks.SearchJobs(ctx, title)
-		if err != nil {
-			fmt.Println("error", err)
-		}
-		jobs = append(jobs, job...)
+		wg.Add(1)
+		go func(title string) {
+			defer wg.Done()
+			job, err := seeks.SearchJobs(ctx, title)
+			if err != nil {
+				fmt.Println("error", err)
+				return
+			}
+
+			// Use a mutex to safely append to the jobs slice
+			mu.Lock()
+			jobs = append(jobs, job...)
+			mu.Unlock()
+		}(title)
 	}
+
+	wg.Wait()
 
 	if err := sc.jobRepo.InsertJob(ctx, jobs); err != nil {
 		fmt.Println("fucking error on insert", err)

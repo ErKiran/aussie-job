@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -217,68 +218,112 @@ func (sk *SeekAPI) SearchJobs(ctx context.Context, keyword string) ([]Summarized
 	url := sk.SearchSlug(1, keyword)
 	var jobsData []SummarizedData
 
-	res, err := sk.ProcessResult(ctx, url)
-	if err != nil {
-		fmt.Println("uable to process result", err)
-		return nil, err
-	}
-	totalpages := res.Totalpages
+	resultJobs := make(chan *SearchedInfo, 1)
+	var wg sync.WaitGroup
 
-	for i := 2; i < totalpages; i++ {
-		url := sk.SearchSlug(i, keyword)
-		additionalJobs, err := sk.ProcessResult(ctx, url)
-		if err != nil {
-			fmt.Println("uable to get additional result", err)
-			return nil, err
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+		sk.ProcessResult(ctx, url, resultJobs)
+	}()
+
+	go func() {
+		wg.Wait()
+		close(resultJobs)
+	}()
+
+	for {
+		res, ok := <-resultJobs
+		if !ok {
+			fmt.Println("channel is closed")
+			break // Exit the loop when the channel is closed
 		}
-		res.JobInfo = append(res.JobInfo, additionalJobs.JobInfo...)
-	}
 
-	for _, job := range res.JobInfo {
-		jobsData = append(jobsData, SummarizedData{
-			Location:       job.Location,
-			JobID:          strconv.Itoa(job.ID),
-			CompanyID:      job.Advertiser.ID,
-			Company:        job.Advertiser.Description,
-			ListingDate:    job.Listingdate,
-			Salary:         job.Salary,
-			Role:           job.Roleid,
-			Title:          job.Title,
-			JobDescription: job.Teaser,
-			ExtraInfo: func() string {
-				var info string
-				if len(job.Bulletpoints) != 0 {
+		if res == nil {
+			fmt.Println("res is nil", res)
+			// Handle nil case if necessary
+			continue
+		}
+
+		var pageWg sync.WaitGroup
+		pageResultJobs := make(chan *SearchedInfo, 1)
+		var pagesProcessed sync.WaitGroup
+
+		for additionalPages := 2; additionalPages <= res.Totalpages; additionalPages++ {
+			url := sk.SearchSlug(additionalPages, keyword)
+			pageWg.Add(1)
+			pagesProcessed.Add(1)
+			go func(url string, wg *sync.WaitGroup, pagesProcessed *sync.WaitGroup) {
+				defer wg.Done()
+				defer pagesProcessed.Done()
+				sk.ProcessResult(ctx, url, pageResultJobs)
+			}(url, &pageWg, &pagesProcessed)
+		}
+
+		go func() {
+			pageWg.Wait()
+			close(pageResultJobs)
+		}()
+
+		go func() {
+			pagesProcessed.Wait()
+		}()
+
+		for additionalJobs := range pageResultJobs {
+			if additionalJobs != nil {
+				res.JobInfo = append(res.JobInfo, additionalJobs.JobInfo...)
+			}
+		}
+
+		for _, job := range res.JobInfo {
+			jobsData = append(jobsData, SummarizedData{
+				Location:       job.Location,
+				JobID:          strconv.Itoa(job.ID),
+				CompanyID:      job.Advertiser.ID,
+				Company:        job.Advertiser.Description,
+				ListingDate:    job.Listingdate,
+				Salary:         job.Salary,
+				Role:           job.Roleid,
+				Title:          job.Title,
+				JobDescription: job.Teaser,
+				ExtraInfo: func() string {
+					var info string
+					if len(job.Bulletpoints) != 0 {
+						return info
+					}
+
+					for _, points := range job.Bulletpoints {
+						info += points
+					}
 					return info
-				}
-
-				for _, points := range job.Bulletpoints {
-					info += points
-				}
-				return info
-			}(),
-			WorkType: job.Worktype,
-			URL:      fmt.Sprintf("https://www.seek.com.au/job/%d", job.ID),
-		})
+				}(),
+				WorkType: job.Worktype,
+				URL:      fmt.Sprintf("https://www.seek.com.au/job/%d", job.ID),
+			})
+		}
 	}
 
 	return jobsData, nil
 }
 
-func (sk *SeekAPI) ProcessResult(ctx context.Context, url string) (*SearchedInfo, error) {
+func (sk *SeekAPI) ProcessResult(ctx context.Context, url string, resultJobs chan<- *SearchedInfo) {
 	req, err := sk.client.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		fmt.Println("error in request", err)
-		return nil, err
+		resultJobs <- nil
+		return
 	}
 
-	fmt.Println("req", req)
+	fmt.Println("req", req.URL.String())
 
 	var res *SearchedInfo
 	if _, err := sk.client.Do(ctx, req, &res); err != nil {
 		fmt.Println("error in DO", err)
-		return nil, err
+		resultJobs <- nil
+		return
 	}
-	return res, nil
+	resultJobs <- res
 }
 
 func (sk *SeekAPI) SearchSlug(page int, keyword string) string {
