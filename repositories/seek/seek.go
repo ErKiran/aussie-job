@@ -10,6 +10,8 @@ import (
 
 type SeekRepo interface {
 	InsertJob(ctx context.Context, jobs []seek.SummarizedData) error
+	JobTitle(ctx context.Context) ([]JobLocation, error)
+	CompanyTitle(ctx context.Context) ([]Company, error)
 }
 
 type seekRepo struct {

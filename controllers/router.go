@@ -37,9 +37,10 @@ func InitRouter() *gin.Engine {
 	// docs.SwaggerInfo.BasePath = "/api/v1"
 	// r.GET("swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
-	nepse := r.Group("api/v1")
+	job := r.Group("api/v1")
 	{
-		nepse.GET("/search", controller.SeekController.SearchJob)
+		job.GET("/search", controller.SeekController.SearchJob)
+		job.GET("/analysis/location", controller.SeekController.AnalyzeJobs)
 	}
 
 	return r
