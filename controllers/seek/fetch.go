@@ -1,10 +1,9 @@
 package seek
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 
@@ -13,11 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func (sc seekController) SearchJob(ctx *gin.Context) {
-	title := ctx.Query("titles")
-
-	titles := strings.Split(title, ",")
-
+func (sc seekController) InitSearch(ctx context.Context, titles []string) error {
 	var jobs []seek.SummarizedData
 	var wg sync.WaitGroup
 	var mu sync.Mutex // Mutex to protect access to the jobs slice
@@ -42,17 +37,19 @@ func (sc seekController) SearchJob(ctx *gin.Context) {
 	wg.Wait()
 
 	if err := sc.jobRepo.InsertJob(ctx, jobs); err != nil {
-		fmt.Println("fucking error on insert", err)
-		ctx.JSON(http.StatusInternalServerError, err)
-		return
-	}
-
-	jobsJs, _ := json.MarshalIndent(jobs, "", " ")
-
-	if err := os.WriteFile("output.json", jobsJs, 0o644); err != nil {
-		fmt.Println("Error writing to file:", err)
-		return
+		return err
 	}
 
 	fmt.Println("total", len(jobs))
+	return nil
+}
+
+func (sc seekController) SearchJob(ctx *gin.Context) {
+	title := ctx.Query("titles")
+
+	titles := strings.Split(title, ",")
+
+	if err := sc.InitSearch(ctx, titles); err != nil {
+		ctx.JSON(http.StatusInternalServerError, err)
+	}
 }
